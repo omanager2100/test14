@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import os
@@ -14,6 +13,7 @@ uploaded_file = st.file_uploader("📁 Kunden-Bestelldatei (.xlsx oder .csv)", t
 kunden_input = st.text_input("📝 Kundennummer (optional):")
 apply_customer = st.button("🔁 Auf alle Zeilen anwenden")
 
+# Datei robust einlesen
 def read_input_file(uploaded_file):
     try:
         if uploaded_file.name.endswith(".csv"):
@@ -30,6 +30,7 @@ def read_input_file(uploaded_file):
         st.error(f"Fehler beim Einlesen der Datei: {e}")
         return None
 
+# Hauptlogik
 if uploaded_file is not None:
     df = read_input_file(uploaded_file)
     if df is not None:
@@ -37,6 +38,7 @@ if uploaded_file is not None:
         st.subheader("📄 Vorschau der Datei")
         st.dataframe(df.head())
 
+        # GPT-Vorschlag anzeigen
         if st.button("🧠 GPT-Mapping-Vorschlag anzeigen"):
             with st.spinner("Analysiere Struktur mit GPT..."):
                 try:
@@ -46,6 +48,7 @@ if uploaded_file is not None:
                 except:
                     st.error("Artikel.csv konnte nicht gelesen werden.")
 
+        # Manuelles Mapping
         if "mapping" in st.session_state:
             st.subheader("🛠 Spalten-Mapping überprüfen/bearbeiten")
             new_mapping = {}
@@ -57,6 +60,7 @@ if uploaded_file is not None:
                 )
             st.session_state["mapping"] = new_mapping
 
+            # Spalten umbenennen
             mapped_df = df.rename(columns={
                 new_mapping["customer_id"]: "customer_id",
                 new_mapping["sku"]: "sku",
@@ -64,11 +68,14 @@ if uploaded_file is not None:
                 new_mapping["quantity"]: "quantity"
             })[["customer_id", "sku", "description", "quantity"]]
 
+            # Optional: Kundennummer auf alle anwenden
             if apply_customer and kunden_input:
                 mapped_df["customer_id"] = kunden_input
 
+            # Zeilen mit leerer SKU entfernen
             mapped_df = mapped_df[mapped_df["sku"].notna() & (mapped_df["sku"].astype(str).str.strip() != "")]
 
+            # Artikeldaten laden & EAN ergänzen
             try:
                 artikel_df = pd.read_csv("artikel.csv", sep=";", encoding="utf-8")
                 artikel_df.columns = artikel_df.columns.str.upper()
@@ -86,6 +93,7 @@ if uploaded_file is not None:
             except Exception as e:
                 st.warning(f"Artikelstammdaten konnten nicht geladen werden: {e}")
 
+            # Anzeige + Export
             spalten_export = ["customer_id", "sku", "ean_me", "description", "quantity"]
             spalten_anzeige = spalten_export + (["korrektur_hinweis"] if "korrektur_hinweis" in mapped_df.columns else [])
 
