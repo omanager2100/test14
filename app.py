@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import os
@@ -10,9 +11,9 @@ st.set_page_config(page_title="Kunden-Orderlisten Umwandler mit Artikelabgleich"
 st.title("📦 Kunden-Orderlisten Umwandler mit Artikelabgleich")
 
 uploaded_file = st.file_uploader("📁 Kunden-Bestelldatei (.xlsx oder .csv)", type=["xlsx", "csv"])
-kundennummer_global = st.text_input("🔢 Falls die Kundennummer fehlt, hier manuell eingeben:")
+kunden_input = st.text_input("📝 Kundennummer (optional):")
+apply_customer = st.button("🔁 Auf alle Zeilen anwenden")
 
-# Einlesen der Datei (robust!)
 def read_input_file(uploaded_file):
     try:
         if uploaded_file.name.endswith(".csv"):
@@ -29,7 +30,6 @@ def read_input_file(uploaded_file):
         st.error(f"Fehler beim Einlesen der Datei: {e}")
         return None
 
-# Hauptlogik
 if uploaded_file is not None:
     df = read_input_file(uploaded_file)
     if df is not None:
@@ -37,13 +37,15 @@ if uploaded_file is not None:
         st.subheader("📄 Vorschau der Datei")
         st.dataframe(df.head())
 
-        # GPT-Vorschlag
         if st.button("🧠 GPT-Mapping-Vorschlag anzeigen"):
             with st.spinner("Analysiere Struktur mit GPT..."):
-                mapping = suggest_mapping_with_samples(df)
-                st.session_state["mapping"] = mapping
+                try:
+                    artikel_df = pd.read_csv("artikel.csv", sep=";", encoding="utf-8")
+                    mapping = suggest_mapping_with_samples(df, artikel_df)
+                    st.session_state["mapping"] = mapping
+                except:
+                    st.error("Artikel.csv konnte nicht gelesen werden.")
 
-        # Manuelles Mapping
         if "mapping" in st.session_state:
             st.subheader("🛠 Spalten-Mapping überprüfen/bearbeiten")
             new_mapping = {}
@@ -55,7 +57,6 @@ if uploaded_file is not None:
                 )
             st.session_state["mapping"] = new_mapping
 
-            # Mapping anwenden
             mapped_df = df.rename(columns={
                 new_mapping["customer_id"]: "customer_id",
                 new_mapping["sku"]: "sku",
@@ -63,24 +64,33 @@ if uploaded_file is not None:
                 new_mapping["quantity"]: "quantity"
             })[["customer_id", "sku", "description", "quantity"]]
 
-            # Fehlende Kundennummer ergänzen
-            if kundennummer_global:
-                mapped_df["customer_id"] = mapped_df["customer_id"].fillna(kundennummer_global)
+            if apply_customer and kunden_input:
+                mapped_df["customer_id"] = kunden_input
 
-            # Artikeldaten anreichern (inkl. Mengenkorrektur)
+            mapped_df = mapped_df[mapped_df["sku"].notna() & (mapped_df["sku"].astype(str).str.strip() != "")]
+
             try:
                 artikel_df = pd.read_csv("artikel.csv", sep=";", encoding="utf-8")
-                mapped_df = enrich_missing_data(mapped_df, artikel_df, kunden_nr_eingabe=kundennummer_global)
+                artikel_df.columns = artikel_df.columns.str.upper()
+                enrich = artikel_df.set_index("ARTNR1").to_dict(orient="index")
+
+                def add_ean(row):
+                    sku = str(row.get("sku", "")).strip()
+                    if sku in enrich:
+                        row["ean_me"] = enrich[sku].get("EAN", "")
+                    return row
+
+                mapped_df = mapped_df.apply(add_ean, axis=1)
+                mapped_df = enrich_missing_data(mapped_df, artikel_df, kunden_nr_eingabe=None)
+
             except Exception as e:
                 st.warning(f"Artikelstammdaten konnten nicht geladen werden: {e}")
 
-            # Reihenfolge der Spalten für Anzeige und Export definieren
-            spalten_export = ["customer_id", "sku", "description", "quantity"]
+            spalten_export = ["customer_id", "sku", "ean_me", "description", "quantity"]
             spalten_anzeige = spalten_export + (["korrektur_hinweis"] if "korrektur_hinweis" in mapped_df.columns else [])
 
             st.subheader("📋 Ergebnis nach Anreicherung")
             st.dataframe(mapped_df[spalten_anzeige])
 
-            # CSV Export (ohne korrektur_hinweis)
             csv_out = mapped_df[spalten_export].to_csv(index=False).encode("utf-8")
             st.download_button("📤 Ergebnis herunterladen", csv_out, "konvertierte_bestellung.csv", "text/csv")
