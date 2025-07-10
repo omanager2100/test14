@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import os
@@ -40,6 +39,23 @@ if uploaded_file is not None:
                 try:
                     artikel_df = pd.read_csv("artikel.csv", sep=";", encoding="utf-8")
                     mapping = suggest_mapping_with_samples(df, artikel_df)
+
+                    # Datenbasierte Überschreibung der sku-Zuordnung bei >=60% Übereinstimmung mit ARTNR1
+                    best_sku_col = None
+                    best_score = 0
+                    artikel_set = set(artikel_df["ARTNR1"].dropna().astype(str).str.strip())
+                    for col in df.columns:
+                        values = df[col].dropna().astype(str).str.strip().tolist()
+                        if not values:
+                            continue
+                        score = sum(1 for v in values[:10] if v in artikel_set)
+                        if score > best_score:
+                            best_score = score
+                            best_sku_col = col
+                    if best_sku_col and best_score >= 6:
+                        mapping["sku"] = best_sku_col
+                        st.info(f"🎯 SKU-Spalte automatisch überschrieben auf '{best_sku_col}' aufgrund {best_score}/10 Treffern mit ARTNR1")
+
                     st.session_state["mapping"] = mapping
                 except:
                     st.error("Artikel.csv konnte nicht gelesen werden.")
@@ -62,7 +78,6 @@ if uploaded_file is not None:
                 new_mapping["quantity"]: "quantity"
             })[["customer_id", "sku", "description", "quantity"]]
 
-            # Automatisch Kundennummer übernehmen, wenn konstant in einer Spalte
             if "customer_id" not in mapped_df.columns or mapped_df["customer_id"].isna().all():
                 for col in df.columns:
                     werte = df[col].dropna().astype(str).unique()
