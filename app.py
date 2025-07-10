@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import os
@@ -10,10 +11,9 @@ st.set_page_config(page_title="Kunden-Orderlisten Umwandler mit Artikelabgleich"
 st.title("📦 Kunden-Orderlisten Umwandler mit Artikelabgleich")
 
 uploaded_file = st.file_uploader("📁 Kunden-Bestelldatei (.xlsx oder .csv)", type=["xlsx", "csv"])
-kunden_input = st.text_input("📝 Kundennummer (optional):")
-apply_customer = st.button("🔁 Auf alle Zeilen anwenden")
+kunden_input = st.text_input("📝 Kundennummer (optional, falls in Datei nicht enthalten):")
+apply_customer = st.button("🔁 Kundennummer auf alle anwenden")
 
-# Datei robust einlesen
 def read_input_file(uploaded_file):
     try:
         if uploaded_file.name.endswith(".csv"):
@@ -30,7 +30,6 @@ def read_input_file(uploaded_file):
         st.error(f"Fehler beim Einlesen der Datei: {e}")
         return None
 
-# Hauptlogik
 if uploaded_file is not None:
     df = read_input_file(uploaded_file)
     if df is not None:
@@ -38,7 +37,6 @@ if uploaded_file is not None:
         st.subheader("📄 Vorschau der Datei")
         st.dataframe(df.head())
 
-        # GPT-Vorschlag anzeigen
         if st.button("🧠 GPT-Mapping-Vorschlag anzeigen"):
             with st.spinner("Analysiere Struktur mit GPT..."):
                 try:
@@ -48,7 +46,6 @@ if uploaded_file is not None:
                 except:
                     st.error("Artikel.csv konnte nicht gelesen werden.")
 
-        # Manuelles Mapping
         if "mapping" in st.session_state:
             st.subheader("🛠 Spalten-Mapping überprüfen/bearbeiten")
             new_mapping = {}
@@ -60,7 +57,6 @@ if uploaded_file is not None:
                 )
             st.session_state["mapping"] = new_mapping
 
-            # Spalten umbenennen
             mapped_df = df.rename(columns={
                 new_mapping["customer_id"]: "customer_id",
                 new_mapping["sku"]: "sku",
@@ -68,14 +64,21 @@ if uploaded_file is not None:
                 new_mapping["quantity"]: "quantity"
             })[["customer_id", "sku", "description", "quantity"]]
 
-            # Optional: Kundennummer auf alle anwenden
+            # Automatische customer_id-Erkennung falls leer
+            if "customer_id" not in mapped_df.columns or mapped_df["customer_id"].isna().all():
+                for col in df.columns:
+                    werte = df[col].dropna().astype(str).unique()
+                    if len(werte) == 1 and werte[0].isdigit():
+                        mapped_df["customer_id"] = werte[0]
+                        st.info(f"💡 Kundennummer automatisch übernommen aus Spalte '{col}': {werte[0]}")
+
+            # Optional überschreiben durch Texteingabe
             if apply_customer and kunden_input:
                 mapped_df["customer_id"] = kunden_input
 
-            # Zeilen mit leerer SKU entfernen
+            # Leere Zeilen (z. B. ohne SKU) entfernen
             mapped_df = mapped_df[mapped_df["sku"].notna() & (mapped_df["sku"].astype(str).str.strip() != "")]
 
-            # Artikeldaten laden & EAN ergänzen
             try:
                 artikel_df = pd.read_csv("artikel.csv", sep=";", encoding="utf-8")
                 artikel_df.columns = artikel_df.columns.str.upper()
@@ -93,12 +96,13 @@ if uploaded_file is not None:
             except Exception as e:
                 st.warning(f"Artikelstammdaten konnten nicht geladen werden: {e}")
 
-            # Anzeige + Export
             spalten_export = ["customer_id", "sku", "ean_me", "description", "quantity"]
             spalten_anzeige = spalten_export + (["korrektur_hinweis"] if "korrektur_hinweis" in mapped_df.columns else [])
 
+            vorhandene_spalten = [spalte for spalte in spalten_anzeige if spalte in mapped_df.columns]
             st.subheader("📋 Ergebnis nach Anreicherung")
-            st.dataframe(mapped_df[spalten_anzeige])
+            st.dataframe(mapped_df[vorhandene_spalten])
 
-            csv_out = mapped_df[spalten_export].to_csv(index=False).encode("utf-8")
+            export_spalten = [spalte for spalte in spalten_export if spalte in mapped_df.columns]
+            csv_out = mapped_df[export_spalten].to_csv(index=False).encode("utf-8")
             st.download_button("📤 Ergebnis herunterladen", csv_out, "konvertierte_bestellung.csv", "text/csv")
