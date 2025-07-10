@@ -11,8 +11,6 @@ st.set_page_config(page_title="Kunden-Orderlisten Umwandler mit Artikelabgleich"
 st.title("📦 Kunden-Orderlisten Umwandler mit Artikelabgleich")
 
 uploaded_file = st.file_uploader("📁 Kunden-Bestelldatei (.xlsx oder .csv)", type=["xlsx", "csv"])
-kunden_input = st.text_input("📝 Kundennummer (optional, falls in Datei nicht enthalten):")
-apply_customer = st.button("🔁 Kundennummer auf alle anwenden")
 
 def read_input_file(uploaded_file):
     try:
@@ -64,7 +62,7 @@ if uploaded_file is not None:
                 new_mapping["quantity"]: "quantity"
             })[["customer_id", "sku", "description", "quantity"]]
 
-            # Automatische customer_id-Erkennung falls leer
+            # Automatisch Kundennummer übernehmen, wenn konstant in einer Spalte
             if "customer_id" not in mapped_df.columns or mapped_df["customer_id"].isna().all():
                 for col in df.columns:
                     werte = df[col].dropna().astype(str).unique()
@@ -72,11 +70,6 @@ if uploaded_file is not None:
                         mapped_df["customer_id"] = werte[0]
                         st.info(f"💡 Kundennummer automatisch übernommen aus Spalte '{col}': {werte[0]}")
 
-            # Optional überschreiben durch Texteingabe
-            if apply_customer and kunden_input:
-                mapped_df["customer_id"] = kunden_input
-
-            # Leere Zeilen (z. B. ohne SKU) entfernen
             mapped_df = mapped_df[mapped_df["sku"].notna() & (mapped_df["sku"].astype(str).str.strip() != "")]
 
             try:
@@ -99,10 +92,10 @@ if uploaded_file is not None:
             spalten_export = ["customer_id", "sku", "ean_me", "description", "quantity"]
             spalten_anzeige = spalten_export + (["korrektur_hinweis"] if "korrektur_hinweis" in mapped_df.columns else [])
 
-            vorhandene_spalten = [spalte for spalte in spalten_anzeige if spalte in mapped_df.columns]
+            vorhandene_spalten = [s for s in spalten_anzeige if s in mapped_df.columns]
             st.subheader("📋 Ergebnis nach Anreicherung")
             st.dataframe(mapped_df[vorhandene_spalten])
 
-            export_spalten = [spalte for spalte in spalten_export if spalte in mapped_df.columns]
+            export_spalten = [s for s in spalten_export if s in mapped_df.columns]
             csv_out = mapped_df[export_spalten].to_csv(index=False).encode("utf-8")
             st.download_button("📤 Ergebnis herunterladen", csv_out, "konvertierte_bestellung.csv", "text/csv")
